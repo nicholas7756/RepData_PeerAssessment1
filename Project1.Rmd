@@ -1,0 +1,236 @@
+---
+title: "Reproducible Research Project 1"
+---
+
+## Loading and preprocessing the data
+
+First, load the required packages and read the activity monitoring dataset.
+
+```{r, echo=TRUE}
+library(data.table)
+library(ggplot2)
+
+activityDT <- fread("activity.csv")
+```
+
+## What is the mean total number of steps taken per day?
+
+### 1. Calculate the total number of steps taken per day
+
+```{r, echo=TRUE}
+Total_Steps <- activityDT[
+    ,
+    .(steps = sum(steps, na.rm = FALSE)),
+    by = date
+]
+
+head(Total_Steps, 30)
+```
+
+### 2. Histogram of the total number of steps taken each day
+
+```{r, echo=TRUE}
+ggplot(Total_Steps[!is.na(steps)], aes(x = steps)) +
+    geom_histogram(binwidth = 1000, fill = "grey", color = "black") +
+    labs(
+        title = "Total Number of Steps Taken per Day",
+        x = "Total Steps per Day",
+        y = "Frequency"
+    )
+```
+
+### 3. Mean and median total number of steps taken per day
+
+```{r, echo=TRUE}
+Total_Steps[
+    ,
+    .(
+        Mean_Steps = mean(steps, na.rm = TRUE),
+        Median_Steps = median(steps, na.rm = TRUE)
+    )
+]
+```
+
+## What is the average daily activity pattern?
+
+### 1. Average number of steps for each 5-minute interval
+
+The average number of steps is calculated for each 5-minute interval across all days.
+
+```{r, echo=TRUE}
+IntervalDT <- activityDT[
+    ,
+    .(steps = mean(steps, na.rm = TRUE)),
+    by = interval
+]
+```
+
+The average daily activity pattern is shown below.
+
+```{r, echo=TRUE}
+ggplot(IntervalDT, aes(x = interval, y = steps)) +
+    geom_line(color = "green", linewidth = 1) +
+    labs(
+        title = "Average Daily Activity Pattern",
+        x = "5-Minute Interval",
+        y = "Average Number of Steps"
+    )
+```
+
+### 2. Five-minute interval with the maximum average number of steps
+
+```{r, echo=TRUE}
+IntervalDT[
+    steps == max(steps),
+    .(Maximum_Interval = interval, Average_Steps = steps)
+]
+```
+
+## Imputing missing values
+
+The number of missing observations is first calculated, followed by an imputation procedure.
+
+### 1. Total number of missing values
+
+```{r, echo=TRUE}
+sum(is.na(activityDT$steps))
+```
+
+### 2. Strategy for imputing missing values
+
+Missing step values are replaced with the mean number of steps for the corresponding 5-minute interval, calculated across all available days.
+
+This strategy preserves the average daily activity pattern. For example, a missing value during an early-morning interval is replaced with the average activity observed during that same interval on other days rather than with a single overall value for the entire dataset.
+
+### 3. Create a new dataset with missing values filled in
+
+A copy of the original dataset is created so that the original data remain unchanged.
+
+```{r, echo=TRUE}
+imputedDT <- copy(activityDT)
+
+intervalMeans <- activityDT[
+    ,
+    .(interval_mean = mean(steps, na.rm = TRUE)),
+    by = interval
+]
+
+imputedDT <- merge(
+    imputedDT,
+    intervalMeans,
+    by = "interval",
+    all.x = TRUE,
+    sort = FALSE
+)
+
+imputedDT[
+    is.na(steps),
+    steps := interval_mean
+]
+
+imputedDT[, interval_mean := NULL]
+```
+
+
+### 4. Daily steps after imputing missing values
+
+Calculate the total number of steps taken per day using the imputed dataset.
+
+```{r, echo=TRUE}
+Total_Steps_Imputed <- imputedDT[
+    ,
+    .(steps = sum(steps)),
+    by = date
+]
+```
+
+Create a histogram of total daily steps after imputation.
+
+```{r, echo=TRUE}
+ggplot(Total_Steps_Imputed, aes(x = steps)) +
+    geom_histogram(binwidth = 1000, fill = "grey", color = "black") +
+    labs(
+        title = "Total Number of Steps per Day After Imputation",
+        x = "Total Steps per Day",
+        y = "Frequency"
+    )
+```
+
+Calculate the mean and median total number of steps taken per day after imputation.
+
+```{r, echo=TRUE}
+Total_Steps_Imputed[
+    ,
+    .(
+        Mean_Steps = mean(steps),
+        Median_Steps = median(steps)
+    )
+]
+```
+
+For comparison, the estimates before imputation are:
+
+```{r, echo=TRUE}
+Total_Steps[
+    ,
+    .(
+        Mean_Steps = mean(steps, na.rm = TRUE),
+        Median_Steps = median(steps, na.rm = TRUE)
+    )
+]
+```
+
+The estimates after imputation may differ slightly from those obtained when missing days were excluded. Imputing missing observations using the average value for each 5-minute interval adds estimated activity for previously incomplete days while maintaining the overall daily activity pattern. This can change both the distribution of total daily steps and the corresponding mean and median.
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+The imputed dataset is used for this part of the analysis.
+
+### 1. Create a weekday/weekend factor variable
+
+First, convert the date variable to a date format and classify each observation as either a weekday or weekend.
+
+```{r, echo=TRUE}
+imputedDT[, date := as.Date(date)]
+
+imputedDT[, daytype :=
+    ifelse(
+        as.POSIXlt(date)$wday %in% c(0, 6),
+        "weekend",
+        "weekday"
+    )
+]
+
+imputedDT[, daytype :=
+    factor(daytype, levels = c("weekday", "weekend"))
+]
+
+table(imputedDT$daytype)
+```
+
+### 2. Compare weekday and weekend activity patterns
+
+Calculate the average number of steps for each 5-minute interval separately for weekdays and weekends.
+
+```{r, echo=TRUE}
+IntervalWeekDT <- imputedDT[
+    ,
+    .(steps = mean(steps)),
+    by = .(interval, daytype)
+]
+```
+
+Create a panel plot comparing weekday and weekend activity patterns.
+
+```{r, echo=TRUE}
+ggplot(IntervalWeekDT, aes(x = interval, y = steps)) +
+    geom_line(color = "grey", linewidth = 1) +
+    facet_wrap(~daytype, ncol = 1) +
+    labs(
+        title = "Average Activity Pattern: Weekdays vs Weekends",
+        x = "5-Minute Interval",
+        y = "Average Number of Steps"
+    )
+```
+
+The two panels allow the average activity pattern during weekdays to be compared directly with the pattern observed during weekends.
